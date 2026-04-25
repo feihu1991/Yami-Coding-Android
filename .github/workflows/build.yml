@@ -17,7 +17,8 @@ jobs:
         distribution: 'temurin'
     - uses: android-actions/setup-android@v3
     - run: chmod +x gradlew
-    - run: ./gradlew :androidApp:assembleDebug --no-daemon
+    - name: Build Android APK
+      run: ./gradlew :androidApp:assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2g -XX:+HeapDumpOnOutOfMemoryError"
     - uses: actions/upload-artifact@v4
       with:
         name: android-apk
@@ -32,7 +33,7 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     - run: chmod +x gradlew
-    - run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon
+    - run: ./gradlew :desktopApp:packageDistributionForCurrentOS --no-daemon -Dorg.gradle.jvmargs="-Xmx2g"
     - uses: actions/upload-artifact@v4
       with:
         name: desktop-distribution
