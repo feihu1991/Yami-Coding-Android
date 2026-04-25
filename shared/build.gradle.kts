@@ -2,6 +2,7 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.multiplatform")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.compose")
 }
 
 kotlin {
@@ -50,6 +51,7 @@ kotlin {
         
         val desktopMain by getting {
             dependencies {
+                implementation(compose.desktop.currentOs)
                 implementation("io.ktor:ktor-client-okhttp:2.3.9")
             }
         }
