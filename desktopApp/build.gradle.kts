@@ -7,12 +7,6 @@ plugins {
 group = "com.yami.coding"
 version = "1.0.0"
 
-repositories {
-    mavenCentral()
-    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
-    google()
-}
-
 dependencies {
     implementation(project(":shared"))
     implementation(compose.desktop.currentOs)
