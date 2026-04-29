@@ -218,11 +218,26 @@ function parseJsonlEntry(entry) {
   } else if (entry.type === 'assistant') {
     const content = entry.message.content;
     if (!Array.isArray(content)) return null;
-    const textBlocks = content.filter(b => b.type === 'text').map(b => b.text);
-    if (textBlocks.length > 0) {
+
+    // Extract all visible content: text, thinking, and tool_use blocks
+    const parts = [];
+    for (const block of content) {
+      if (block.type === 'text') {
+        parts.push(block.text);
+      } else if (block.type === 'thinking') {
+        parts.push('🧠 Thinking...');
+        if (block.thinking) {
+          parts.push(block.thinking.substring(0, 200));
+        }
+      } else if (block.type === 'tool_use') {
+        const cmd = block.input?.command || block.input?.description || block.name;
+        parts.push('🔧 ' + block.name + ': ' + (typeof cmd === 'string' ? cmd.substring(0, 100) : ''));
+      }
+    }
+    if (parts.length > 0) {
       return {
         id: entry.uuid,
-        content: textBlocks.join(''),
+        content: parts.join('\n'),
         isFromUser: false,
         timestamp: new Date(entry.timestamp).getTime()
       };
@@ -308,11 +323,22 @@ function formatClaudeEvent(event) {
   switch (event.type) {
     case 'assistant':
       if (event.message && event.message.content) {
-        const texts = event.message.content
-          .filter(b => b.type === 'text')
-          .map(b => b.text);
-        if (texts.length > 0) {
-          return { stream: 'STDOUT', data: texts.join('') };
+        const parts = [];
+        for (const block of event.message.content) {
+          if (block.type === 'text') {
+            parts.push(block.text);
+          } else if (block.type === 'thinking') {
+            parts.push('\n🧠 Thinking...');
+            if (block.thinking) {
+              parts.push(block.thinking.substring(0, 200));
+            }
+          } else if (block.type === 'tool_use') {
+            const cmd = block.input?.command || block.input?.description || block.name;
+            parts.push('\n🔧 ' + block.name + ': ' + (typeof cmd === 'string' ? cmd.substring(0, 100) : ''));
+          }
+        }
+        if (parts.length > 0) {
+          return { stream: 'STDOUT', data: parts.join('') };
         }
       }
       return null;
@@ -452,6 +478,7 @@ function executeResumeCommand(state, command, onOutput) {
     '-p', command,
     '-r', state.claudeSessionId,
     '--output-format', 'stream-json',
+    '--verbose',
     '--dangerously-skip-permissions'
   ];
 
@@ -804,10 +831,24 @@ function handleSelectSession(msg, state) {
   console.log(`[BRIDGE] Selecting Claude session: ${claudeSessionId}`);
 
   const discovered = discoverSessions();
-  const target = discovered.find(s => s.sessionId === claudeSessionId);
+  let target = discovered.find(s => s.sessionId === claudeSessionId);
+
+  // Fallback: if session not found but we already auto-selected one, use that
+  if (!target && state.claudeSessionId) {
+    console.log(`[BRIDGE] Session ${claudeSessionId} not found, using auto-selected: ${state.claudeSessionId}`);
+    target = discovered.find(s => s.sessionId === state.claudeSessionId);
+  }
+
+  // Second fallback: use first active session with history
+  if (!target) {
+    target = discovered.find(s => s.isAlive && s.hasHistory);
+    if (target) {
+      console.log(`[BRIDGE] Using first available session: ${target.sessionId}`);
+    }
+  }
 
   if (!target) {
-    state.ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
+    state.ws.send(JSON.stringify({ type: 'error', message: 'No Claude sessions available' }));
     return;
   }
 

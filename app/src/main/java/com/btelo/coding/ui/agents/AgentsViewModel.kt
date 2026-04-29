@@ -4,10 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.btelo.coding.data.remote.websocket.factory.ConnectionState
 import com.btelo.coding.domain.model.Message
+import com.btelo.coding.domain.model.SkillTag
+import com.btelo.coding.domain.model.SkillTagType
 import com.btelo.coding.domain.repository.AuthRepository
 import com.btelo.coding.domain.repository.MessageRepository
 import com.btelo.coding.data.local.DataStoreManager
 import com.btelo.coding.domain.repository.SessionRepository
+import com.btelo.coding.domain.voice.VoiceInputManager
+import com.btelo.coding.domain.voice.VoiceInputState
 import com.btelo.coding.util.Logger
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -22,7 +26,8 @@ data class SessionInfo(
     val id: String,
     val name: String,
     val isConnected: Boolean = false,
-    val unreadCount: Int = 0
+    val unreadCount: Int = 0,
+    val tokenCount: Int = 0
 )
 
 data class AgentsUiState(
@@ -41,6 +46,15 @@ data class AgentsUiState(
     val currentCommandTag: String? = null,
     val showSlashPanel: Boolean = false,
     val completionExpanded: Boolean = false,
+    val skillTags: List<SkillTag> = listOf(
+        SkillTag("1", "vibe-remote", SkillTagType.PATH, "/opt/vibe-remote"),
+        SkillTag("2", "fix-auth", SkillTagType.FEATURE),
+        SkillTag("3", "api-refactor", SkillTagType.FEATURE)
+    ),
+    val showTaskComplete: Boolean = false,
+    val completedTaskName: String = "",
+    val completedTaskDesc: String = "",
+    val pinnedMessageIds: Set<String> = emptySet(),
     val quickActions: List<String> = listOf(
         "Build feature",
         "Fix bug",
@@ -54,7 +68,8 @@ class AgentsViewModel @Inject constructor(
     private val messageRepository: MessageRepository,
     private val sessionRepository: SessionRepository,
     private val authRepository: AuthRepository,
-    private val dataStoreManager: DataStoreManager
+    private val dataStoreManager: DataStoreManager,
+    private val voiceInputManager: VoiceInputManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AgentsUiState())
@@ -65,6 +80,29 @@ class AgentsViewModel @Inject constructor(
     init {
         loadSessions()
         observeConnectionState()
+        observeVoiceInput()
+    }
+
+    private fun observeVoiceInput() {
+        viewModelScope.launch {
+            voiceInputManager.state.collect { state ->
+                when (state) {
+                    is VoiceInputState.Result -> {
+                        _uiState.value = _uiState.value.copy(
+                            inputText = _uiState.value.inputText + state.text
+                        )
+                        voiceInputManager.resetState()
+                    }
+                    is VoiceInputState.Error -> {
+                        _uiState.value = _uiState.value.copy(
+                            errorMessage = "语音: ${state.message}"
+                        )
+                        voiceInputManager.resetState()
+                    }
+                    else -> { /* Listening / Processing / Idle */ }
+                }
+            }
+        }
     }
 
     private fun loadSessions() {
@@ -74,7 +112,8 @@ class AgentsViewModel @Inject constructor(
                     SessionInfo(
                         id = session.id,
                         name = session.name,
-                        isConnected = session.isConnected
+                        isConnected = session.isConnected,
+                        tokenCount = session.tokenCount
                     )
                 }
                 _uiState.value = _uiState.value.copy(sessions = sessionInfos)
@@ -118,10 +157,11 @@ class AgentsViewModel @Inject constructor(
             isStreaming = false
         )
 
-        // Find session name
+        // Find session name and token count
         val session = _uiState.value.sessions.find { it.id == sessionId }
         _uiState.value = _uiState.value.copy(
-            currentSessionName = session?.name ?: "Claude"
+            currentSessionName = session?.name ?: "Claude",
+            tokenCount = session?.tokenCount ?: 0
         )
 
         // Connect to session
@@ -210,6 +250,106 @@ class AgentsViewModel @Inject constructor(
         )
     }
 
+    fun toggleAiMode() {
+        Logger.i("AgentsVM", "Toggle AI mode")
+        // TODO: cycle through AI modes (Claude, GPT, etc.)
+    }
+
+    fun toggleFavorite() {
+        Logger.i("AgentsVM", "Toggle favorite")
+        // TODO: bookmark current session
+    }
+
+    fun insertCodeBlock() {
+        val current = _uiState.value.inputText
+        _uiState.value = _uiState.value.copy(inputText = "$current\n```\n\n```")
+        Logger.i("AgentsVM", "Insert code block")
+    }
+
+    fun showToolsMenu() {
+        Logger.i("AgentsVM", "Show tools menu")
+        // TODO: show tools/actions menu
+    }
+
+    fun startVoiceInput() {
+        voiceInputManager.startListening()
+    }
+
+    fun stopVoiceInput() {
+        voiceInputManager.stopListening()
+    }
+
+    // --- Skill Tags ---
+
+    fun addSkillTag(name: String, type: SkillTagType, path: String? = null) {
+        if (name.isBlank()) return
+        val tag = SkillTag(
+            id = "tag-${System.currentTimeMillis()}",
+            name = name.trim(),
+            type = type,
+            path = path
+        )
+        _uiState.value = _uiState.value.copy(
+            skillTags = _uiState.value.skillTags + tag
+        )
+    }
+
+    fun removeSkillTag(id: String) {
+        _uiState.value = _uiState.value.copy(
+            skillTags = _uiState.value.skillTags.filter { it.id != id }
+        )
+    }
+
+    fun onSkillTagClick(tag: SkillTag) {
+        when (tag.type) {
+            SkillTagType.PATH -> {
+                tag.path?.let { p ->
+                    _uiState.value = _uiState.value.copy(
+                        inputText = "$p "
+                    )
+                }
+            }
+            SkillTagType.FEATURE -> {
+                _uiState.value = _uiState.value.copy(
+                    inputText = "/${tag.name} "
+                )
+            }
+        }
+    }
+
+    // --- Task Complete ---
+
+    fun showTaskCompleteDialog(taskName: String, description: String = "") {
+        _uiState.value = _uiState.value.copy(
+            showTaskComplete = true,
+            completedTaskName = taskName,
+            completedTaskDesc = description
+        )
+    }
+
+    fun dismissTaskCompleteDialog() {
+        _uiState.value = _uiState.value.copy(
+            showTaskComplete = false,
+            completedTaskName = "",
+            completedTaskDesc = ""
+        )
+    }
+
+    // --- Message operations ---
+
+    fun retryMessage(messageId: String) {
+        val message = _uiState.value.messages.find { it.id == messageId } ?: return
+        _uiState.value = _uiState.value.copy(inputText = message.content)
+        sendMessage()
+    }
+
+    fun togglePinMessage(messageId: String) {
+        val current = _uiState.value.pinnedMessageIds
+        _uiState.value = _uiState.value.copy(
+            pinnedMessageIds = if (messageId in current) current - messageId else current + messageId
+        )
+    }
+
     fun sendMessage() {
         val content = _uiState.value.inputText.trim()
         if (content.isBlank()) return
@@ -255,6 +395,9 @@ class AgentsViewModel @Inject constructor(
 
     fun disconnect() {
         viewModelScope.launch {
+            _uiState.value.currentSessionId?.let { sessionId ->
+                messageRepository.disconnect(sessionId)
+            }
             dataStoreManager.clearConnection()
             _uiState.value = AgentsUiState()
         }
@@ -264,6 +407,7 @@ class AgentsViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        voiceInputManager.destroy()
         coroutineJobs.forEach { if (it.isActive) it.cancel() }
         coroutineJobs.clear()
     }

@@ -49,7 +49,11 @@ private val UserBubbleGradient = Brush.linearGradient(
 )
 
 @Composable
-fun MessageBubble(message: Message) {
+fun MessageBubble(
+    message: Message,
+    onRetry: ((String) -> Unit)? = null,
+    onPin: ((String) -> Unit)? = null
+) {
     val isUser = message.isFromUser
     val clipboardManager = LocalClipboardManager.current
 
@@ -151,7 +155,7 @@ fun MessageBubble(message: Message) {
             }
             // Retry button
             IconButton(
-                onClick = { /* TODO: retry */ },
+                onClick = { onRetry?.invoke(message.id) },
                 modifier = Modifier.size(28.dp)
             ) {
                 Icon(
@@ -163,7 +167,7 @@ fun MessageBubble(message: Message) {
             }
             // Pin button
             IconButton(
-                onClick = { /* TODO: pin */ },
+                onClick = { onPin?.invoke(message.id) },
                 modifier = Modifier.size(28.dp)
             ) {
                 Icon(

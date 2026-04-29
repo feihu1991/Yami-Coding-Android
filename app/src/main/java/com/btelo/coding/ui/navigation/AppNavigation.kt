@@ -17,9 +17,12 @@ import com.btelo.coding.ui.agents.AgentsScreen
 import com.btelo.coding.ui.browser.BrowserScreen
 import com.btelo.coding.ui.chat.ChatScreen
 import com.btelo.coding.ui.files.FilesScreen
+import com.btelo.coding.ui.git.GitPanelScreen
+import com.btelo.coding.ui.device.DevicesScreen
 import com.btelo.coding.ui.notification.NotificationSettingsScreen
 import com.btelo.coding.ui.scan.ScanScreen
 import com.btelo.coding.ui.session.SessionListScreen
+import com.btelo.coding.ui.settings.ProviderSettingsScreen
 import com.btelo.coding.ui.team.TeamScreen
 
 sealed class Screen(val route: String) {
@@ -41,6 +44,11 @@ sealed class Screen(val route: String) {
     }
     object SessionList : Screen("main/agents/sessions")
     object NotificationSettings : Screen("main/agents/notifications")
+    object ProviderSettings : Screen("main/agents/settings")
+    object Devices : Screen("main/agents/devices")
+    object GitPanel : Screen("main/files/git/{repoPath}") {
+        fun createRoute(repoPath: String) = "main/files/git/$repoPath"
+    }
 }
 
 @Composable
@@ -114,7 +122,16 @@ fun MainScreen(
                     onSessionClick = { sessionId ->
                         navController.navigate(Screen.Chat.createRoute(sessionId))
                     },
-                    onDisconnect = onDisconnect
+                    onDisconnect = onDisconnect,
+                    onNotificationClick = {
+                        navController.navigate(Screen.NotificationSettings.route)
+                    },
+                    onProviderSettingsClick = {
+                        navController.navigate(Screen.ProviderSettings.route)
+                    },
+                    onDevicesClick = {
+                        navController.navigate(Screen.Devices.route)
+                    }
                 )
             }
 
@@ -125,7 +142,23 @@ fun MainScreen(
 
             // Files tab — file browser
             composable(Screen.Files.route) {
-                FilesScreen()
+                FilesScreen(
+                    onGitClick = { repoPath ->
+                        navController.navigate(Screen.GitPanel.createRoute(repoPath))
+                    }
+                )
+            }
+
+            // Git panel (nested within files)
+            composable(
+                route = Screen.GitPanel.route,
+                arguments = listOf(
+                    navArgument("repoPath") { type = NavType.StringType }
+                )
+            ) {
+                GitPanelScreen(
+                    onBack = { navController.popBackStack() }
+                )
             }
 
             // Browser tab — web proxy
@@ -162,6 +195,20 @@ fun MainScreen(
             // Notification settings (nested within agents)
             composable(Screen.NotificationSettings.route) {
                 NotificationSettingsScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            // Provider settings (nested within agents)
+            composable(Screen.ProviderSettings.route) {
+                ProviderSettingsScreen(
+                    onBack = { navController.popBackStack() }
+                )
+            }
+
+            // Devices (nested within agents)
+            composable(Screen.Devices.route) {
+                DevicesScreen(
                     onBack = { navController.popBackStack() }
                 )
             }

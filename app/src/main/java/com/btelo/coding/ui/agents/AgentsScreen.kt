@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -67,10 +68,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.btelo.coding.domain.model.MessageType
+import com.btelo.coding.domain.model.SkillTagType
 import com.btelo.coding.ui.chat.AiStreamingBubble
+import com.btelo.coding.ui.chat.CompletionStatusBar
 import com.btelo.coding.ui.chat.InputBar
 import com.btelo.coding.ui.chat.MessageBubble
+import com.btelo.coding.ui.chat.SkillTagsRow
 import com.btelo.coding.ui.chat.SlashCommandPanel
+import com.btelo.coding.ui.chat.TaskCompleteDialog
+import com.btelo.coding.ui.chat.ThinkingBubble
+import com.btelo.coding.ui.chat.ToolExecutionBubble
 import com.btelo.coding.ui.theme.AccentBlue
 import com.btelo.coding.ui.theme.AppBackground
 import com.btelo.coding.ui.theme.AvatarColors
@@ -92,6 +100,9 @@ fun AgentsScreen(
     onSessionListOpen: () -> Unit,
     onSessionClick: (String) -> Unit,
     onDisconnect: () -> Unit,
+    onNotificationClick: () -> Unit = {},
+    onProviderSettingsClick: () -> Unit = {},
+    onDevicesClick: () -> Unit = {},
     viewModel: AgentsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -120,7 +131,9 @@ fun AgentsScreen(
                 tokenCount = uiState.tokenCount,
                 commandTag = uiState.currentCommandTag,
                 onMenuClick = onSessionListOpen,
-                onNotificationClick = { },
+                onNotificationClick = onNotificationClick,
+                onProviderSettingsClick = onProviderSettingsClick,
+                onDevicesClick = onDevicesClick,
                 onDisconnect = {
                     viewModel.disconnect()
                     onDisconnect()
@@ -167,7 +180,34 @@ fun AgentsScreen(
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
                     items(uiState.messages) { message ->
-                        MessageBubble(message = message)
+                        when (message.type) {
+                            MessageType.TOOL -> {
+                                message.tools?.forEach { tool ->
+                                    ToolExecutionBubble(tool = tool)
+                                }
+                            }
+                            MessageType.THINKING -> {
+                                ThinkingBubble(description = message.content)
+                            }
+                            else -> {
+                                MessageBubble(
+                                    message = message,
+                                    onRetry = { viewModel.retryMessage(it) },
+                                    onPin = { viewModel.togglePinMessage(it) }
+                                )
+                            }
+                        }
+                    }
+                    // Completion status bar after tool executions
+                    val toolCount = uiState.messages.count { it.type == MessageType.TOOL }
+                    if (toolCount > 0 && !uiState.isStreaming) {
+                        item {
+                            CompletionStatusBar(
+                                toolCount = toolCount,
+                                expanded = uiState.completionExpanded,
+                                onToggle = { viewModel.toggleCompletionExpanded() }
+                            )
+                        }
                     }
                     if (uiState.isStreaming && uiState.streamingContent.isNotBlank()) {
                         item {
@@ -186,6 +226,16 @@ fun AgentsScreen(
                         viewModel.switchSession(sessionId)
                     },
                     onNewSession = { viewModel.createSession() }
+                )
+            }
+
+            // Skill tags
+            if (uiState.skillTags.isNotEmpty()) {
+                SkillTagsRow(
+                    tags = uiState.skillTags,
+                    onTagClick = viewModel::onSkillTagClick,
+                    onAddClick = { viewModel.addSkillTag("new", SkillTagType.FEATURE) },
+                    onMenuClick = { /* TODO: show tag management menu */ }
                 )
             }
 
@@ -212,8 +262,26 @@ fun AgentsScreen(
                 text = uiState.inputText,
                 onTextChange = viewModel::updateInputText,
                 onSend = viewModel::sendMessage,
-                onVoiceClick = { },
-                onAttachClick = { }
+                onVoiceClick = viewModel::startVoiceInput,
+                onAttachClick = { },
+                isLoading = uiState.isLoading,
+                onAiModeClick = viewModel::toggleAiMode,
+                onStarClick = viewModel::toggleFavorite,
+                onCodeClick = viewModel::insertCodeBlock,
+                onToolsClick = viewModel::showToolsMenu
+            )
+        }
+
+        // Task complete dialog
+        if (uiState.showTaskComplete) {
+            TaskCompleteDialog(
+                taskName = uiState.completedTaskName,
+                description = uiState.completedTaskDesc,
+                onViewSession = {
+                    viewModel.dismissTaskCompleteDialog()
+                    uiState.currentSessionId?.let { onSessionClick(it) }
+                },
+                onDismiss = viewModel::dismissTaskCompleteDialog
             )
         }
     }
@@ -227,6 +295,8 @@ private fun AgentsTopBar(
     commandTag: String? = null,
     onMenuClick: () -> Unit,
     onNotificationClick: () -> Unit,
+    onProviderSettingsClick: () -> Unit = {},
+    onDevicesClick: () -> Unit = {},
     onDisconnect: () -> Unit
 ) {
     TopAppBar(
@@ -300,6 +370,34 @@ private fun AgentsTopBar(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Provider Settings") },
+                        onClick = {
+                            showMenu = false
+                            onProviderSettingsClick()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = TextSecondary
+                            )
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Devices") },
+                        onClick = {
+                            showMenu = false
+                            onDevicesClick()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.PhoneAndroid,
+                                contentDescription = null,
+                                tint = TextSecondary
+                            )
+                        }
+                    )
                     DropdownMenuItem(
                         text = { Text("Disconnect") },
                         onClick = {
@@ -432,7 +530,12 @@ private fun AgentsInputBar(
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onVoiceClick: () -> Unit,
-    onAttachClick: () -> Unit
+    onAttachClick: () -> Unit,
+    isLoading: Boolean = false,
+    onAiModeClick: () -> Unit = {},
+    onStarClick: () -> Unit = {},
+    onCodeClick: () -> Unit = {},
+    onToolsClick: () -> Unit = {}
 ) {
     val hasText = text.isNotBlank()
 
@@ -483,7 +586,7 @@ private fun AgentsInputBar(
                 modifier = Modifier
                     .size(28.dp)
                     .padding(4.dp)
-                    .clickable { }
+                    .clickable(onClick = onAiModeClick)
             )
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -507,7 +610,7 @@ private fun AgentsInputBar(
                 modifier = Modifier
                     .size(28.dp)
                     .padding(4.dp)
-                    .clickable { }
+                    .clickable(onClick = onStarClick)
             )
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -519,7 +622,7 @@ private fun AgentsInputBar(
                 modifier = Modifier
                     .size(28.dp)
                     .padding(4.dp)
-                    .clickable { }
+                    .clickable(onClick = onCodeClick)
             )
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -531,7 +634,7 @@ private fun AgentsInputBar(
                 modifier = Modifier
                     .size(28.dp)
                     .padding(4.dp)
-                    .clickable { }
+                    .clickable(onClick = onToolsClick)
             )
             Spacer(modifier = Modifier.width(12.dp))
 
@@ -563,7 +666,7 @@ private fun AgentsInputBar(
                     .clickable(enabled = hasText, onClick = onSend),
                 contentAlignment = Alignment.Center
             ) {
-                if (false) { // TODO: loading state
+                if (isLoading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
                         color = TextOnBubble,

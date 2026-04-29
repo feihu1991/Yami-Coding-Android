@@ -177,13 +177,27 @@ function parseJsonlEntry(entry) {
   } else if (entry.type === 'assistant') {
     const content = entry.message.content;
     if (!Array.isArray(content)) return null;
-    const textBlocks = content
-      .filter(b => b.type === 'text')
-      .map(b => b.text);
-    if (textBlocks.length > 0) {
+
+    // Extract all visible content: text, thinking, and tool_use blocks
+    const parts = [];
+    for (const block of content) {
+      if (block.type === 'text') {
+        parts.push(block.text);
+      } else if (block.type === 'thinking') {
+        parts.push('🧠 Thinking...');
+        if (block.thinking) {
+          parts.push(block.thinking.substring(0, 200));
+        }
+      } else if (block.type === 'tool_use') {
+        const cmd = block.input?.command || block.input?.description || block.name;
+        parts.push('🔧 ' + block.name + ': ' + (typeof cmd === 'string' ? cmd.substring(0, 100) : ''));
+      }
+    }
+
+    if (parts.length > 0) {
       return {
         id: entry.uuid,
-        content: textBlocks.join(''),
+        content: parts.join('\n'),
         isFromUser: false,
         timestamp: new Date(entry.timestamp).getTime()
       };
@@ -406,6 +420,34 @@ app.post('/restart', (req, res) => {
 });
 
 // ============================================================
+// API: Get connect URL — for reconnection without terminal access
+// ============================================================
+app.get('/connect-url', (req, res) => {
+  const localIP = getLocalIP();
+  const connectUrl = `btelo://${localIP}:${PORT}/${CONNECTION_TOKEN}`;
+  res.json({ url: connectUrl, ip: localIP, port: PORT, token: CONNECTION_TOKEN });
+});
+
+// QR code page — scannable from phone browser
+app.get('/qr', (req, res) => {
+  const localIP = getLocalIP();
+  const connectUrl = `btelo://${localIP}:${PORT}/${CONNECTION_TOKEN}`;
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BTELO Connect</title>
+<style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#1A1A1A;color:#fff;font-family:monospace}
+h2{font-size:16px;margin-bottom:8px}p{font-size:12px;color:#888;margin-bottom:16px;word-break:break-all}
+img{width:280px;height:280px;background:#fff;padding:12px;border-radius:12px}
+</style></head><body>
+<h2>BTELO Coding</h2>
+<p>Scan this QR code with the BTELO app to connect:</p>
+<img src="https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(connectUrl)}"
+     alt="QR Code" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22280%22 height=%22280%22><rect width=%22280%22 height=%22280%22 fill=%22%23fff%22/><text x=%22140%22 y=%22140%22 text-anchor=%22middle%22 dy=%22.3em%22 font-size=%2214%22 fill=%22%23000%22>QR Code: ${connectUrl}</text></svg>'">
+<p style="margin-top:12px;font-size:10px;color:#555">${connectUrl}</p>
+</body></html>`);
+});
+
+// ============================================================
 // API: Restart (GET) — simple restart via browser/curl
 // ============================================================
 app.get('/restart', (req, res) => {
@@ -617,6 +659,7 @@ function executeCommand(command, session, sessionId) {
     '-p', command,
     '-r', session.claudeSessionId,
     '--output-format', 'stream-json',
+    '--verbose',
     '--dangerously-skip-permissions'
   ];
 
@@ -717,11 +760,22 @@ function formatClaudeEvent(event) {
   switch (event.type) {
     case 'assistant':
       if (event.message && event.message.content) {
-        const texts = event.message.content
-          .filter(b => b.type === 'text')
-          .map(b => b.text);
-        if (texts.length > 0) {
-          return { stream: 'STDOUT', data: texts.join('') };
+        const parts = [];
+        for (const block of event.message.content) {
+          if (block.type === 'text') {
+            parts.push(block.text);
+          } else if (block.type === 'thinking') {
+            parts.push('\n🧠 Thinking...');
+            if (block.thinking) {
+              parts.push(block.thinking.substring(0, 200));
+            }
+          } else if (block.type === 'tool_use') {
+            const cmd = block.input?.command || block.input?.description || block.name;
+            parts.push('\n🔧 ' + block.name + ': ' + (typeof cmd === 'string' ? cmd.substring(0, 100) : ''));
+          }
+        }
+        if (parts.length > 0) {
+          return { stream: 'STDOUT', data: parts.join('') };
         }
       }
       return null;

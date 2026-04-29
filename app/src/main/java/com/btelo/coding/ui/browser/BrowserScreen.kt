@@ -1,6 +1,7 @@
 package com.btelo.coding.ui.browser
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,9 +36,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +67,8 @@ import com.btelo.coding.ui.theme.ThinkingPurple
 @Composable
 fun BrowserScreen(viewModel: BrowserViewModel = hiltViewModel()) {
     val uiState by viewModel.uiState.collectAsState()
+    var portInput by remember { mutableStateOf("") }
+    var urlInput by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -107,7 +115,7 @@ fun BrowserScreen(viewModel: BrowserViewModel = hiltViewModel()) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Card(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).clickable { viewModel.showAddPortDialog() },
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = CardSurface)
                     ) {
@@ -121,7 +129,7 @@ fun BrowserScreen(viewModel: BrowserViewModel = hiltViewModel()) {
                         }
                     }
                     Card(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f).clickable { viewModel.showAddWebsiteDialog() },
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(containerColor = CardSurface)
                     ) {
@@ -158,15 +166,111 @@ fun BrowserScreen(viewModel: BrowserViewModel = hiltViewModel()) {
             }
 
             // Proxy entries
-            items(uiState.proxies) { proxy -> ProxyEntryRow(proxy) }
+            items(uiState.proxies) { proxy ->
+                ProxyEntryRow(
+                    proxy = proxy,
+                    onRefresh = { viewModel.refreshProxy(proxy.id) },
+                    onRetry = { viewModel.retryProxy(proxy.id) },
+                    onClose = { viewModel.closeProxy(proxy.id) }
+                )
+            }
 
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
+
+    // Add Port Proxy dialog
+    if (uiState.showAddPortDialog) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDialogs,
+            title = { Text("Add Port Proxy", color = TextPrimary) },
+            text = {
+                Column {
+                    Text("Enter a local port number to proxy:", color = TextSecondary, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextField(
+                        value = portInput,
+                        onValueChange = { portInput = it },
+                        placeholder = { Text("e.g. 8080", color = TextTertiary) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.addPortProxy(portInput)
+                    portInput = ""
+                }) {
+                    Text("Add", color = AccentBlue)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.dismissDialogs()
+                    portInput = ""
+                }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = CardSurface
+        )
+    }
+
+    // Add Website Proxy dialog
+    if (uiState.showAddWebsiteDialog) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDialogs,
+            title = { Text("Add Website Proxy", color = TextPrimary) },
+            text = {
+                Column {
+                    Text("Enter a website URL to proxy:", color = TextSecondary, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextField(
+                        value = urlInput,
+                        onValueChange = { urlInput = it },
+                        placeholder = { Text("e.g. https://example.com", color = TextTertiary) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.addWebsiteProxy(urlInput)
+                    urlInput = ""
+                }) {
+                    Text("Add", color = AccentBlue)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    viewModel.dismissDialogs()
+                    urlInput = ""
+                }) {
+                    Text("Cancel", color = TextSecondary)
+                }
+            },
+            containerColor = CardSurface
+        )
+    }
 }
 
 @Composable
-private fun ProxyEntryRow(proxy: ProxyEntry) {
+private fun ProxyEntryRow(
+    proxy: ProxyEntry,
+    onRefresh: () -> Unit,
+    onRetry: () -> Unit,
+    onClose: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -200,7 +304,7 @@ private fun ProxyEntryRow(proxy: ProxyEntry) {
                 Text(proxy.address, color = TextPrimary, fontSize = 14.sp)
                 Text(proxy.fullAddress, color = TextSecondary, fontSize = 12.sp)
             }
-            Text("→", color = TextSecondary, fontSize = 16.sp)
+            Text("→", color = TextSecondary, fontSize = 16.sp, modifier = Modifier.clickable(onClick = onRefresh))
         }
 
         // Error details with browser toolbar
@@ -216,10 +320,12 @@ private fun ProxyEntryRow(proxy: ProxyEntry) {
                 modifier = Modifier.padding(start = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                listOf(Icons.Default.Close, Icons.Default.ArrowBack, Icons.Default.ArrowForward, Icons.Default.Refresh, Icons.Default.Block, Icons.Default.Keyboard)
-                    .forEach { icon ->
-                        Icon(icon, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-                    }
+                Icon(Icons.Default.Close, "Close", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable(onClick = onClose))
+                Icon(Icons.Default.ArrowBack, "Back", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable { })
+                Icon(Icons.Default.ArrowForward, "Forward", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable { })
+                Icon(Icons.Default.Refresh, "Refresh", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable(onClick = onRetry))
+                Icon(Icons.Default.Block, "Block", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable { })
+                Icon(Icons.Default.Keyboard, "Keyboard", tint = TextSecondary, modifier = Modifier.size(18.dp).clickable { })
             }
         }
     }

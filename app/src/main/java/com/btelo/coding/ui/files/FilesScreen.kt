@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Refresh
@@ -34,15 +36,22 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,18 +67,23 @@ import com.btelo.coding.ui.theme.TextTertiary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FilesScreen(viewModel: FilesViewModel = hiltViewModel()) {
+fun FilesScreen(
+    onGitClick: (String) -> Unit = {},
+    viewModel: FilesViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val clipboardManager = LocalClipboardManager.current
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { },
                 actions = {
-                    IconButton(onClick = { }) {
+                    IconButton(onClick = { viewModel.toggleSearch() }) {
                         Icon(Icons.Default.Search, "Search", tint = TextSecondary)
                     }
-                    IconButton(onClick = { }) {
+                    IconButton(onClick = { viewModel.refreshCurrentPath() }) {
                         Icon(Icons.Default.Refresh, "Refresh", tint = TextSecondary)
                     }
                     IconButton(onClick = { }) {
@@ -79,9 +93,41 @@ fun FilesScreen(viewModel: FilesViewModel = hiltViewModel()) {
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = AppBackground
     ) { padding ->
-        LazyColumn(
+        Column(modifier = Modifier.padding(padding)) {
+            // Search bar
+            if (uiState.isSearchVisible) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    TextField(
+                        value = uiState.searchQuery,
+                        onValueChange = viewModel::updateSearchQuery,
+                        placeholder = { Text("Search files...", color = TextTertiary, fontSize = 14.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = CardSurface,
+                            unfocusedContainerColor = CardSurface,
+                            focusedTextColor = TextPrimary,
+                            unfocusedTextColor = TextPrimary,
+                            focusedIndicatorColor = AccentBlue,
+                            unfocusedIndicatorColor = CardSurface
+                        ),
+                        trailingIcon = {
+                            IconButton(onClick = { viewModel.toggleSearch() }) {
+                                Icon(Icons.Default.Close, "Close", tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    )
+                }
+            }
+
+            LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -108,8 +154,12 @@ fun FilesScreen(viewModel: FilesViewModel = hiltViewModel()) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 4.dp)
                 ) {
-                    items(uiState.gitRepos) { repo ->
-                        GitRepoCard(repo = repo, onClick = { viewModel.navigateToPath(repo.path) })
+                    items(viewModel.getFilteredRepos()) { repo ->
+                        GitRepoCard(
+                            repo = repo,
+                            onClick = { viewModel.navigateToPath(repo.path) },
+                            onGitClick = { onGitClick(repo.path) }
+                        )
                     }
                 }
             }
@@ -144,13 +194,17 @@ fun FilesScreen(viewModel: FilesViewModel = hiltViewModel()) {
                         Icons.Default.ContentCopy,
                         contentDescription = "Copy",
                         tint = TextTertiary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clickable {
+                                clipboardManager.setText(AnnotatedString(uiState.currentPath))
+                            }
                     )
                 }
             }
 
             // Directory listing
-            items(uiState.directories) { dir ->
+            items(viewModel.getFilteredDirs()) { dir ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -191,11 +245,12 @@ fun FilesScreen(viewModel: FilesViewModel = hiltViewModel()) {
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
+        }
     }
 }
 
 @Composable
-private fun GitRepoCard(repo: GitRepoInfo, onClick: () -> Unit) {
+private fun GitRepoCard(repo: GitRepoInfo, onClick: () -> Unit, onGitClick: () -> Unit = {}) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -203,33 +258,49 @@ private fun GitRepoCard(repo: GitRepoInfo, onClick: () -> Unit) {
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = CardSurface)
     ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                Icons.Default.Folder,
-                contentDescription = null,
-                tint = AccentBlue,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                repo.name,
-                color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                repo.currentBranch,
-                color = TextSecondary,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        Box {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = AccentBlue,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    repo.name,
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    repo.currentBranch,
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            // Git icon button
+            IconButton(
+                onClick = onGitClick,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(28.dp)
+            ) {
+                Icon(
+                    Icons.Default.Bolt,
+                    contentDescription = "Git",
+                    tint = AccentBlue,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
         }
     }
 }
